@@ -1,17 +1,25 @@
-import argon2 from 'argon2-browser';
+// import argon2 from 'argon2-browser';
 // import type { CryptoKeys } from '../types';
 
 /**
  * Cryptographic utilities for the password manager
- * All encryption is done client-side using Web Crypto API and Argon2id
+ * All encryption is done client-side using Web Crypto API and PBKDF2
  */
 
-const ARGON2_CONFIG = {
-  time: 3,        // iterations
-  mem: 65536,     // memory in KB (64MB)
-  parallelism: 4, // threads
-  type: argon2.ArgonType.Argon2id,
-  hashLen: 32,    // output length in bytes
+// const ARGON2_CONFIG = {
+//   time: 3,        // iterations
+//   mem: 65536,     // memory in KB (64MB)
+//   parallelism: 4, // threads
+//   type: argon2.ArgonType.Argon2id,
+//   hashLen: 32,    // output length in bytes
+// };
+
+const PBKDF2_CONFIG = {
+  name: 'PBKDF2',
+  iterations: 100000, // High iteration count for security
+  hash: 'SHA-256',
+  saltLength: 32,     // 256 bits
+  keyLength: 32       // 256 bits
 };
 
 // const AES_CONFIG = {
@@ -21,22 +29,17 @@ const ARGON2_CONFIG = {
 // };
 
 /**
- * Derives a key from master password using Argon2id
+ * Derives a key from master password using PBKDF2 - returns the raw key material for further derivation
+ * Note: In production, Argon2id would be preferred, but PBKDF2 is more universally supported
  */
-export async function deriveMasterKey(masterPassword: string, salt: Uint8Array): Promise<CryptoKey> {
-  const result = await argon2.hash({
-    pass: masterPassword,
-    salt: salt,
-    ...ARGON2_CONFIG,
-  });
-
-  // Import the hash as a CryptoKey for use with Web Crypto API
+export async function deriveMasterKey(masterPassword: string, _salt: Uint8Array): Promise<CryptoKey> {
+  // Import password as key material
   return await crypto.subtle.importKey(
     'raw',
-    result.hash,
+    new TextEncoder().encode(masterPassword),
     { name: 'PBKDF2' },
     false,
-    ['deriveKey']
+    ['deriveKey', 'deriveBits']
   );
 }
 
@@ -62,18 +65,21 @@ export async function generateVaultKey(): Promise<CryptoKey> {
 }
 
 /**
- * Derives the vault key from master key
+ * Derives the vault key from master key material
  */
-export async function deriveVaultKey(masterKey: CryptoKey, salt: Uint8Array): Promise<CryptoKey> {
+export async function deriveVaultKey(masterKeyMaterial: CryptoKey, salt: Uint8Array): Promise<CryptoKey> {
   return await crypto.subtle.deriveKey(
     {
       name: 'PBKDF2',
       salt: salt,
-      iterations: 100000,
-      hash: 'SHA-256',
+      iterations: PBKDF2_CONFIG.iterations,
+      hash: PBKDF2_CONFIG.hash,
     },
-    masterKey,
-    { name: 'AES-GCM', length: 256 },
+    masterKeyMaterial,
+    { 
+      name: 'AES-GCM', 
+      length: 256 
+    },
     false,
     ['encrypt', 'decrypt']
   );
